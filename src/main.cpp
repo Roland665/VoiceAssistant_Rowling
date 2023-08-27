@@ -36,10 +36,9 @@ void Key_Task(void *parameter){
   while(1){
     if(digitalRead(Record_Key) == 0){
       vTaskDelay(10);
-      while(digitalRead(Record_Key) == 0);
       recordFlag = true;
       ESP_LOGI(TAG, "Record begin~");
-      vTaskDelay(5000);
+      while(digitalRead(Record_Key) == 0);
       recordFlag = false;
       ESP_LOGI(TAG, "Record stop~");
     }
@@ -97,7 +96,15 @@ void Get_MIC_To_SD_Task(void * parameter){
 
   // 开空间存储采样数据
   i2s_INMP_sample_t *samples_read = (i2s_INMP_sample_t *)malloc(sizeof(i2s_INMP_sample_t) * i2s_INMP_config.dma_buf_len);
+  if(samples_read == NULL){
+    ESP_LOGE(TAG, "Insufficient heap space, *samples_read* create failed");
+    while(1);
+  }
   uint8_t *samples_write = (uint8_t*)malloc(i2s_INMP_config.dma_buf_len * sizeof(i2s_INMP_sample_t));
+  if(samples_write == NULL){
+    ESP_LOGE(TAG, "Insufficient heap space, *samples_write* create failed");
+    while(1);
+  }
   int bytes_read = 0xffff;//单次实际采样数
 
   // test

@@ -34,8 +34,10 @@ char* FiletoBase64(File myfile){
     Serial.print("Free PSRAM after freeing: ");
     Serial.println(heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
   // char *base64Data = (char*)heap_caps_malloc(sizeof(char) * 4 * (file_size+size_err)/3 + 1, MALLOC_CAP_SPIRAM);
-  if(base64Data == NULL)
+  if(base64Data == NULL){
     ESP_LOGE(TAG, "Insufficient heap space, *base64Data* create failed");
+    while(1);
+  }
 
   // 开始base64编码
   int dataIndex = 0;
