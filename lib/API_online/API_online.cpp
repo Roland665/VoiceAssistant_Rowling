@@ -86,7 +86,7 @@ String API_online::sis(const char *base64Data){
   if (WiFi.status() == WL_CONNECTED){
     uint32_t length = strlen(base64Data);
     // 固化json数据段
-    char *jsonA = "{\"config\": {\"audio_format\": \"wav\",\"property\": \"chinese_8k_common\",\"add_punc\": \"yes\"},\"data\": \"";
+    char *jsonA = "{\"config\": {\"audio_format\": \"wav\",\"property\": \"chinese_16k_common\",\"add_punc\": \"yes\",\"vocabulary_id\": \"5104cd99-a89a-4dce-8d81-8e952da21cd8\"},\"data\": \"";
     char *jsonB = "\"}";
     char *POST_body = (char*)malloc(sizeof(char) * (strlen(jsonA)+strlen(base64Data)+strlen(jsonB)+1));
     if(POST_body == NULL){

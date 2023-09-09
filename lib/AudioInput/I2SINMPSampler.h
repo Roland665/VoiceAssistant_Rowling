@@ -2,7 +2,7 @@
 
 #include "I2SSampler.h"
 
-typedef int32_t i2s_INMP_sample_t;
+typedef int16_t i2s_INMP_sample_t;
 /**
  * I2S Class for both the ADC or I2S-standard sampler
  **/

@@ -156,11 +156,32 @@ void OLED_Task(void *parameter){
     }
     else if (OLED_showing_state == 3)
     {
-      u8g2.setFont(u8g2_font_wqy12_t_gb2312);
-      u8g2.setCursor(10,50); // 设置坐标
-      u8g2.print("结果:");
-      u8g2.setCursor(50,50); // 设置坐标
-      u8g2.print(sis_payload);
+      u8g2.setCursor(15,10); // 设置坐标
+      u8g2.print("==识别内容==");
+      static uint8_t k = 0;
+      static uint8_t x_add = 0;
+      static uint8_t y_add = 0;
+      for(k = 0,x_add = 0,y_add = 0; k < sis_payload.length(); k++){
+        u8g2.setCursor(3+12*x_add,30+y_add*12); // 设置坐标
+        if(sis_payload[k]>127){
+          //是中文
+          u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+          u8g2.print(sis_payload[k++]);
+          u8g2.print(sis_payload[k++]);
+          u8g2.print(sis_payload[k]);
+        }
+        else{
+          u8g2.setFont(u8g2_font_samim_16_t_all);
+          u8g2.print(sis_payload[k]);
+        }
+        x_add++;
+        if(x_add == 10){
+          y_add++;
+          x_add = 0;
+        }
+      }
+      // u8g2.setCursor(3,50); // 设置坐标
+      // u8g2.print(sis_payload);
     }
     else if(OLED_showing_state == 4)
     {
@@ -177,8 +198,8 @@ void Get_MIC_To_SD_Task(void * parameter){
   uint8_t queue_pvItem;
 
   // 连接wifi并获取sis_api token
-  static char *wifi_ssid = "苹果手机 15 Pro max ultra";
-  static char *wifi_password = "roland66";
+  static char *wifi_ssid = "Xiaomi_4c";
+  static char *wifi_password = "l18005973661";
   ESP_LOGI(TAG, "Default wifi: %s", wifi_ssid);
   // 先尝试连接默认wifi,等待蓝牙写入新的wifi账密
   WiFi.begin(wifi_ssid, wifi_password);
@@ -283,6 +304,13 @@ void Get_MIC_To_SD_Task(void * parameter){
         // 采样录音
         // Serial.println("demo");
         bytes_read = mic_I2SINMPSampler.read(samples_read, i2s_INMP_config.dma_buf_len);
+        for(int i = 0; i < bytes_read/sizeof(i2s_INMP_sample_t); i++){
+          samples_read[i]*=10;
+          if(samples_read[i]>32767)
+            samples_read[i] = 32767;
+          else if(samples_read[i] < -32768)
+            samples_read[i] = -32768;
+        }
         mic_WavFileWriter.write((uint8_t *)samples_read, sizeof(i2s_INMP_sample_t), bytes_read);
       }
       recordFlag = false;
@@ -298,7 +326,7 @@ void Get_MIC_To_SD_Task(void * parameter){
       File myfile = SD.open(wavPath,FILE_READ);
       char *base64Data = FiletoBase64(myfile);
       myfile.close();
-      // 将wav文件的base64编码post到SIS，接收返回数据
+      // 将wav文件的base64编码POST到SIS，接收返回数据
       sis_payload = sis_api.sis(base64Data);
       Serial.println(sis_payload);
       queue_pvItem = 3;
