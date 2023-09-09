@@ -19,6 +19,10 @@
 #include <BLEServer.h>
 #include <BLE2902.h>
 
+static char *wifi_ssid = "苹果手机 15 Pro max ultra";
+static char *wifi_password = "roland66";
+// static char *wifi_ssid = "Xiaomi_4c";
+// static char *wifi_password = "l18005973661";
 bool recordFlag = false;//是否开始录音标志位，true-开始
 static const char* TAG = "Roland";
 bool LEDT_flag = false;
@@ -36,13 +40,16 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE, /* c
 #define OLED_SHOWING_LEN 1// 1字节指令
 #define OLED_SHOWING_SIZE sizeof(uint8_t)
 QueueHandle_t OLED_showing_queue = NULL;
-/* 指令内容
+/* UI指令内容
 0-显示待机内容
+4-组件准备中
 1-显示录音中UI
 2-显示识别中UI
 3-显示语音识别结果
-4-组件准备中
-8-未联网
+5-没网了
+6-语音识别的录音时长按时间过短
+7-网络质量不佳，重新操作
+8-内存不足，malloc失败
 */
 // Wifi账密内容消息队列, 具体内容是char字符串地址
 #define WIFI_DATA_LEN_MAX 1
@@ -100,6 +107,11 @@ void OLED_Task(void *parameter){
     xQueueReceive(OLED_showing_queue, &OLED_showing_state, portMAX_DELAY);
     u8g2.clearBuffer();
     if(OLED_showing_state == 0){
+      if((WiFi.status() == WL_CONNECTED)){
+        //显示wifi图标
+        u8g2.setFont(u8g2_font_siji_t_6x10);
+        u8g2.drawGlyph(115, 9, 57882);
+      }
       // 待机动画
       static short i,j;
       static short xTemp = 0;
@@ -120,7 +132,7 @@ void OLED_Task(void *parameter){
             }
             j--;
         }
-        if(yTemp > 0 || xTemp < 16-1){
+        if(yTemp > 1 || xTemp < 16-1){
             if(xTemp < 16-1)
               xTemp++;
             else{
@@ -132,8 +144,14 @@ void OLED_Task(void *parameter){
           xTemp = 0;
           yTemp = 8-1;
           u8g2.sendBuffer(); // 同步屏幕
-          vTaskDelay(300);
+          vTaskDelay(100);
           u8g2.clearBuffer(); // clear the u8g2 buffer
+          if((WiFi.status() == WL_CONNECTED)){
+            //显示wifi图标
+            u8g2.setFont(u8g2_font_siji_t_6x10);
+            u8g2.drawGlyph(115, 9, 57882);
+          }
+
           u8g2.sendBuffer(); // 同步屏幕
           vTaskDelay(100);
         }
@@ -147,6 +165,8 @@ void OLED_Task(void *parameter){
       u8g2.print("录音中~~");
       u8g2.setCursor(30, 30); // 设置坐标
       u8g2.print("松手录音结束……");
+      u8g2.setFont(u8g2_font_siji_t_6x10);
+      u8g2.drawGlyphX2(50, 60, 57420);
     }
     else if (OLED_showing_state == 2)
     {
@@ -156,7 +176,7 @@ void OLED_Task(void *parameter){
     }
     else if (OLED_showing_state == 3)
     {
-      u8g2.setCursor(15,10); // 设置坐标
+      u8g2.setCursor(20,10); // 设置坐标
       u8g2.print("==识别内容==");
       static uint8_t k = 0;
       static uint8_t x_add = 0;
@@ -189,45 +209,56 @@ void OLED_Task(void *parameter){
       u8g2.setCursor(25, 30); // 设置坐标
       u8g2.print("组件准备中~~");
     }
+    else if(OLED_showing_state == 5)
+    {
+      u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+      u8g2.setCursor(30, 20); // 设置坐标
+      u8g2.print("没网了？");
+      u8g2.setCursor(5, 32); // 设置坐标
+      u8g2.print("请打开wifi:");
+      u8g2.print(wifi_ssid);
+      u8g2.setCursor(3, 44); // 设置坐标
+      u8g2.print("或蓝牙设置新wifi");
+    }
+    else if(OLED_showing_state == 6)
+    {
+      u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+      u8g2.setCursor(30, 40); // 设置坐标
+      u8g2.print("请重新操作！");
+    }
+    else if(OLED_showing_state == 7)
+    {
+      u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+      u8g2.setCursor(20, 25); // 设置坐标
+      u8g2.print("网络质量不佳qwq");
+      u8g2.setCursor(25, 45); // 设置坐标
+      u8g2.print("请重新操作QAQ");
+    }
+    else if(OLED_showing_state == 8)
+    {
+      u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+      u8g2.setCursor(50, 22); // 设置坐标
+      u8g2.print("O.o");
+      u8g2.setCursor(40, 35); // 设置坐标
+      u8g2.print("内存不足！");
+      u8g2.setCursor(10, 55); // 设置坐标
+      u8g2.print("请联系作者debug");
+    }
+    else if(OLED_showing_state == 6)
+    {
+      u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+      u8g2.setCursor(25, 40); // 设置坐标
+      u8g2.print("你说话了O.o？");
+    }
     u8g2.sendBuffer(); // 同步屏幕
   }
 }
 
 //Get_MIC_To_SD_Task 任务函数
 void Get_MIC_To_SD_Task(void * parameter){
-  uint8_t queue_pvItem;
-
-  // 连接wifi并获取sis_api token
-  static char *wifi_ssid = "Xiaomi_4c";
-  static char *wifi_password = "l18005973661";
-  ESP_LOGI(TAG, "Default wifi: %s", wifi_ssid);
-  // 先尝试连接默认wifi,等待蓝牙写入新的wifi账密
-  WiFi.begin(wifi_ssid, wifi_password);
-  do{
-    switch (BLE_set_flag)
-    {
-      // case 0:
-      case 1:
-        xQueueReceive(Wifi_data_queue, &wifi_ssid, portMAX_DELAY);
-        ESP_LOGI(TAG, "Wifi账号设置完毕:%s，请输入Wifi密码~", wifi_ssid);
-        break;
-      case 2:
-        xQueueReceive(Wifi_data_queue, &wifi_password, portMAX_DELAY);
-        ESP_LOGI(TAG, "Wifi密码设置完毕:%s", wifi_password);
-        WiFi.begin(wifi_ssid, wifi_password);
-        break;
-      default:
-        ESP_LOGI(TAG, "Waiting to link wifi: %s", wifi_ssid);
-        vTaskDelay(500);
-        break;
-    }
-  }while(WiFi.status() != WL_CONNECTED);
-  ESP_LOGI(TAG, "Succeed in linking wifi: %s", wifi_ssid);
-
-  sis_api.start(); // 获取token
-  sis_api.queryHotList(); // 查询云端并更新本地热词表
-  // sis_api.hAddData("你好");
-  // sis_api.createHotList();
+  uint8_t queue_temp; //
+  int bytes_read = 0xffff;//单次实际采样数
+  int16_t err;
 
   const char* wavPath = "/voice.wav";//录音文件路径
   //挂载MicroSD Card
@@ -281,19 +312,49 @@ void Get_MIC_To_SD_Task(void * parameter){
     ESP_LOGE(TAG, "Insufficient heap space, *samples_write* create failed");
     while(1);
   }
-  int bytes_read = 0xffff;//单次实际采样数
+
+  queue_temp = 0;
+  xQueueSend(OLED_showing_queue, &queue_temp, 0); // 进入待机模式
+
+  // 连接wifi并获取sis_api token
+  ESP_LOGI(TAG, "Default wifi: %s", wifi_ssid);
+  // 先尝试连接默认wifi,等待蓝牙写入新的wifi账密
+  WiFi.begin(wifi_ssid, wifi_password);
+  do{
+    switch (BLE_set_flag)
+    {
+      // case 0:
+      case 1:
+        xQueueReceive(Wifi_data_queue, &wifi_ssid, portMAX_DELAY);
+        ESP_LOGI(TAG, "Wifi账号设置完毕:%s，请输入Wifi密码~", wifi_ssid);
+        break;
+      case 2:
+        xQueueReceive(Wifi_data_queue, &wifi_password, portMAX_DELAY);
+        ESP_LOGI(TAG, "Wifi密码设置完毕:%s", wifi_password);
+        WiFi.begin(wifi_ssid, wifi_password);
+        break;
+      default:
+        ESP_LOGI(TAG, "Waiting to link wifi: %s", wifi_ssid);
+        vTaskDelay(500);
+        break;
+    }
+  }while(WiFi.status() != WL_CONNECTED);
+  ESP_LOGI(TAG, "Succeed in linking wifi: %s", wifi_ssid);
+
+  sis_api.start(); // 获取token
+  sis_api.queryHotList(); // 查询云端并更新本地热词表
+  // sis_api.hAddData("你好");
+  // sis_api.createHotList();
 
   // test
   // mic_I2SINMPSampler.start();
-  queue_pvItem = 0;
-  xQueueSend(OLED_showing_queue, &queue_pvItem, 0); // 进入待机模式
   while(1){
     if(digitalRead(Record_Key) == 0){
       recordFlag = true;
       vTaskDelay(10);
       ESP_LOGI(TAG, "Record begin~");
-      queue_pvItem = 1;
-      xQueueSend(OLED_showing_queue, &queue_pvItem, portMAX_DELAY); // 告诉OLED显示“录音中”UI
+      queue_temp = 1;
+      xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY); // 告诉OLED显示“录音中”UI
       // 启用i2s模块获取INMP441音频数据
       mic_I2SINMPSampler.start();
       // 开始向目标文件写入wav头片段
@@ -320,22 +381,49 @@ void Get_MIC_To_SD_Task(void * parameter){
       mic_I2SINMPSampler.stop();
       // 结束wav文件的写入
       mic_WavFileWriter.finish();
-      queue_pvItem = 2;
-      xQueueSend(OLED_showing_queue, &queue_pvItem, portMAX_DELAY); // 告诉OLED显示识别中UI
+      queue_temp = 2;
+      xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY); // 告诉OLED显示识别中UI
       //对wav文件进行base64编码
       File myfile = SD.open(wavPath,FILE_READ);
       char *base64Data = FiletoBase64(myfile);
       myfile.close();
       // 将wav文件的base64编码POST到SIS，接收返回数据
-      sis_payload = sis_api.sis(base64Data);
-      Serial.println(sis_payload);
-      queue_pvItem = 3;
-      xQueueSend(OLED_showing_queue, &queue_pvItem, portMAX_DELAY); // 告诉OLED显示语音识别结果UI
+      err = sis_api.sis(base64Data, &sis_payload);
+      switch(err)
+      {
+        case 0: // 成功识别
+          queue_temp = 3;
+          xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY); // 告诉OLED显示语音识别结果UI
+          break;
+        case 1: // 没网了
+          queue_temp = 5;
+          xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY);
+          break;
+        case 2: // 内存不足了
+          queue_temp = 8;
+          xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY);
+          break;
+        case 3: // API返回的文本为空
+          queue_temp = 9;
+          xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY);
+          break;
+        case 500: // 长按时间过短
+          queue_temp = 6;
+          xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY);
+          break;
+        default: // 返回的是httpcode错误状态码
+          queue_temp = 7;
+          xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY);
+          break;
+      }
+      ESP_LOGI(TAG, "识别结果:%s" ,sis_payload.c_str());
       free(base64Data);
       base64Data = NULL;
-      vTaskDelay(5000); //保持5秒显示识别结果
-      queue_pvItem = 0;
-      xQueueSend(OLED_showing_queue, &queue_pvItem, portMAX_DELAY); // 告诉OLED显示语音识别结果UI
+      while(digitalRead(Record_Key) == 1); //保持显示识别结果,再次点按回到待机状态
+      vTaskDelay(500); // 消抖
+      queue_temp = 0;
+      xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY); // 告诉OLED显示待机界面
+      sis_payload.clear(); // 清空一下
     }
     else{
       vTaskDelay(1);

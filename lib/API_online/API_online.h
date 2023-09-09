@@ -32,7 +32,7 @@ public:
                         }; // 热词表
   API_online(String endpoint, String project_id);
   void start();// 尝试访问API链接，并获取token
-  String sis(const char *base64Data);
+  int16_t sis(const char *base64Data, String *sis_payload);
   int8_t createHotList(void);
   int8_t queryHotList(void);
   int8_t updateHotList(void);

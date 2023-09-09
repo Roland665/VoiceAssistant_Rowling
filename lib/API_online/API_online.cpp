@@ -78,12 +78,13 @@ void API_online::start(){
 /**
  * @brief    调用华为一句话识别API（SIS）
  * @param    base64Data: wav文件base64编码数据
- * @param    length    : base64Data的长度
- * @retval   识别后的字符串
+ * @param    sis_payload    : 识别结果
+ * @retval   0-识别成功 1-没联网 2-内存不足 3-没检测到语音
  */
-String API_online::sis(const char *base64Data){
+int16_t API_online::sis(const char *base64Data, String *sis_payload){
   // 先判断是否有联网
   if (WiFi.status() == WL_CONNECTED){
+    int httpcode;
     uint32_t length = strlen(base64Data);
     // 固化json数据段
     char *jsonA = "{\"config\": {\"audio_format\": \"wav\",\"property\": \"chinese_16k_common\",\"add_punc\": \"yes\",\"vocabulary_id\": \"5104cd99-a89a-4dce-8d81-8e952da21cd8\"},\"data\": \"";
@@ -91,7 +92,7 @@ String API_online::sis(const char *base64Data){
     char *POST_body = (char*)malloc(sizeof(char) * (strlen(jsonA)+strlen(base64Data)+strlen(jsonB)+1));
     if(POST_body == NULL){
       ESP_LOGE(TAG, "Insufficient heap space, *POST_body* create failed");
-      return "2";
+      return 2;
     }
     strcpy(POST_body, jsonA);
     strcat(POST_body, base64Data);
@@ -100,23 +101,30 @@ String API_online::sis(const char *base64Data){
 		// 建立http链接
 		m_httpClient.begin(m_apiUrl1 + m_endpoint + m_apiUrl2 + m_project_id + m_apiUrl3);
     //// 添加请求头
-		m_httpClient.addHeader("Content-Type", "application/json");// 似乎可有可无
+		m_httpClient.addHeader("Content-Type", "application/json");// 不可无
 		m_httpClient.addHeader("X-Auth-Token", m_apiToken);
     // 发送POST请求
-		m_httpClient.POST((uint8_t*)POST_body, strlen(POST_body));
+		httpcode = m_httpClient.POST((uint8_t*)POST_body, strlen(POST_body));
     free(POST_body);
-    // 提取响应体
     String payload = m_httpClient.getString();
-    ESP_LOGI(TAG, "POST success, information:");
     Serial.println(payload);
-    DynamicJsonDocument doc(payload.length()*2); //声明一个JsonDocument对象
-    deserializeJson(doc, payload); //反序列化JSON数据
-    m_httpClient.end();
-    return doc["result"]["text"];
+    if(httpcode == 200){ // 成功识别
+      // 提取响应体
+      ESP_LOGI(TAG, "POST success, information:");
+      DynamicJsonDocument doc(payload.length()*2); //声明一个JsonDocument对象
+      deserializeJson(doc, payload); //反序列化JSON数据
+      m_httpClient.end();
+      *sis_payload = doc["result"]["text"].as<String>();
+      if(doc["result"]["text"].as<String>().length() <= 1)
+        return 3;
+      return 0;
+    }
+    else
+      return httpcode; // API调用了但是不成功，具体原因根据返回值到官网查看
 	}
 	else{
 		ESP_LOGE(TAG, "Error in WiFi connection");
-    return "1";
+    return 1;
 	}
 }
 
@@ -171,9 +179,8 @@ int8_t API_online::updateHotList(void){
     Serial.println(heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
     // 发送PUT请求
     m_httpClient.begin(m_apiUrl1+m_endpoint+m_apiUrl2+m_project_id+m_hotUrl3);
-    Serial.println(4);
+		m_httpClient.addHeader("Content-Type", "application/json");// 不可无
     m_httpClient.addHeader("X-Auth-Token", m_apiToken);
-    Serial.println(5);
     // for(int i = 0 ; i < PUT_body.length(); i++){
     //   printf("%hX ", PUT_body.c_str()[i]);
     // }
@@ -185,7 +192,6 @@ int8_t API_online::updateHotList(void){
     }
     // m_httpClient.PUT(PUT_body);
     m_httpClient.PUT(p, PUT_body.length());
-    Serial.println(6);
     // 提取响应体
     String payload = m_httpClient.getString();
     Serial.println(payload);
@@ -308,6 +314,7 @@ int8_t API_online::createHotList(void){
     m_httpClient.begin("https://sis-ext.cn-north-4.myhuaweicloud.com/v1/9512b326c85747cbade191a38a51691c/asr/vocabularies");
     // m_httpClient.begin("https://iam.cn-north-4.myhuaweicloud.com/v3/auth/tokens");
     Serial.println("begin~");
+		m_httpClient.addHeader("Content-Type", "application/json");// 不可无
     m_httpClient.addHeader("X-Auth-Token", m_apiToken);
     Serial.println("addheader~");
     // for(int i = 0 ; i < PUT_body.length(); i++){
