@@ -14,15 +14,14 @@ typedef struct _wav_header
   int subchunk1_size = 16;    // Should be 16 for PCM
   short audio_format = 1;     // Should be 1 for PCM. 3 for IEEE Float
   short num_channels = 1;     // Number of sound channels
-  int sample_rate = 16000*2;    // Sample rate
-  int byte_rate = 16000*2;      // Number of bytes per second. sample_rate * num_channels * Bytes Per Sample
-  short block_align = 2;      // num_channels * Bytes Per Sample
+  int sample_rate = 32000;    // Sample rate
+  int byte_rate = 32000 * 1 * 4;      // Number of bytes per second. sample_rate * num_channels * Bytes Per Sample
+  short block_align = 1*4;      // num_channels * Bytes Per Sample
   short bits_per_sample = 32; // Number of bits per sample
 
   // Data
   char subchunk2_ID[4];       // Contains "data"
   int subchunk2_size = 0;     // Number of bytes in data. Number of samples * num_channels * sample byte size
-  // uint8_t bytes[];         // Remainder of wave file is bytes
   _wav_header()
   {
     chunk_ID[0] = 'R';

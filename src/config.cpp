@@ -8,7 +8,7 @@ const i2s_config_t i2s_INMP_config = {
     .channel_format = I2S_CHANNEL_FMT_ONLY_LEFT,// leave L/R unconnected when using Left channel
     .communication_format = i2s_comm_format_t(I2S_COMM_FORMAT_STAND_I2S),// Philips standard | MSB first standard
     .intr_alloc_flags = ESP_INTR_FLAG_LEVEL1,
-    .dma_buf_count = 16,  // 改成32count之后读取内存报错消失
+    .dma_buf_count = 64,  // 改成32count之后读取内存报错消失
     .dma_buf_len = 8,  // 1024 samples per buffer
     .use_apll = 1        // use APLL-CLK,frequency 16MHZ-128MHZ,it's for audio
 };
@@ -20,3 +20,4 @@ const i2s_pin_config_t i2s_INMP_pin_config = {
   .data_out_num = MIC_INMP_I2S_DATA_OUT,
   .data_in_num = MIC_INMP_I2S_DATA_IN
 };
+

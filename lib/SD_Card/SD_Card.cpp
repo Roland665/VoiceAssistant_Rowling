@@ -1,4 +1,43 @@
+#include "Arduino.h"
 #include "SD_Card.h"
+#include "config.h"
+
+// static const char* TAG = "SD_Card";
+// void uploadSDCard(void){
+//     //挂载MicroSD Card
+//   SPIClass SD_SPI_Config;
+//   SD_SPI_Config.begin(SD_SPI_SCLK, SD_SPI_MISO, SD_SPI_MOSI, SD_SPI_CS);
+//   while(!SD.begin(SD_SPI_CS, SD_SPI_Config)){
+//     Serial.println("Card Mount Failed");
+//     delay(1000);
+//   }
+//   //检测SD卡型号
+//   uint8_t cardType = SD.cardType();
+//   while(cardType == CARD_NONE){
+//     Serial.println("No SD card attached");
+//     vTaskDelay(1000);
+//     cardType = SD.cardType();
+//   }
+//   Serial.print("SD Card Type: ");
+//   switch (cardType)
+//   {
+//   case CARD_MMC:
+//     Serial.println("MMC");
+//     break;
+//   case CARD_SDHC:
+//     Serial.println("SDHC");
+//     break;
+//   case CARD_SD:
+//     Serial.println("SDSC");
+//     break;
+//   default:
+//     Serial.println("UNKNOWN");
+//     break;
+//   }
+//   //检测SD卡大小
+//   uint64_t cardSize = SD.cardSize() / (1024 * 1024);
+//   ESP_LOGI(TAG, "SD Card Size: %lluMB\r\n", cardSize);
+// }
 
 
 /**
