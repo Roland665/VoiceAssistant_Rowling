@@ -1,7 +1,8 @@
 #include "API_online.h"
 #include "ArduinoJson.h"
 
-static const char* TAG = "HUAWEI-SIS";
+static const char* TAG = "API_online";
+API_online::API_online(void){}
 
 API_online::API_online(String endpoint, String project_id)
   :m_endpoint(endpoint), m_project_id(project_id){};
@@ -13,33 +14,6 @@ API_online::API_online(String endpoint, String project_id)
 //  * @retval   错误信息，0表示无错误
 //  */
 // uint8_t API_online::getToken(){
-//   int httpErr;
-//   if (WiFi.status() == WL_CONNECTED){
-//     //记录将要收集的响应头(返回的token在X-Subject-Token中)
-// 		const char* headers[] = {"X-Subject-Token"};
-// 		m_httpClient.collectHeaders(headers,2);
-// 		// 建立http链接
-// 		m_httpClient.begin(m_tokenUrl1+m_endpoint+m_tokenUrl2);
-//     //// 添加请求头
-// 		// m_httpClient.addHeader("Content-Type", "application/json");//似乎可有可无
-//     // 发送POST请求
-// 		httpErr = m_httpClient.POST("{\"auth\": {\"identity\": {\"methods\": [\"password\"],\"password\": {\"user\": {\"name\": \"Roland\",\"password\": \"roland66\",\"domain\": {\"name\": \"hw098127479\"}}}},\"scope\": {\"project\": {\"name\": \"cn-north-4\"}}}}");
-// 		if(httpErr/100 == 2){
-//       m_apiToken = m_httpClient.header("X-Subject-Token");
-//       ESP_LOGI(TAG, "Get token successfully");
-//     }
-//     else{
-//       ESP_LOGE(TAG, "POST ERROR. Http code is %d", httpErr);
-//       return 2;
-//     }
-// 	}
-// 	else{
-// 		Serial.println("Error in WiFi connection");
-//     return 1;
-// 	}
-// 	// 结束http连接
-// 	m_httpClient.end();
-//   return 0;
 // }
 
 /**
@@ -47,15 +21,7 @@ API_online::API_online(String endpoint, String project_id)
  * @param    void
  * @retval   void
  */
-void API_online::start(){
-  uint8_t err;
-  // 获取华为一句话识别token
-  // err = this->getToken();
-  // if(err != 0){
-  //   ESP_LOGE(TAG, "Method \"getToken\" happened error");
-  //   while(1);
-  // }
-
+int8_t API_online::start(){
   if (WiFi.status() == WL_CONNECTED){
     //记录将要收集的响应头(返回的token在X-Subject-Token中)
 		const char* headers[] = {"X-Subject-Token"};
@@ -63,14 +29,16 @@ void API_online::start(){
 		// 建立http链接
 		m_httpClient.begin(m_tokenUrl1+m_endpoint+m_tokenUrl2);
     //// 添加请求头
-		// m_httpClient.addHeader("Content-Type", "application/json");//似乎可有可无
+		// m_httpClient.addHeader("Content-Type", "application/json"); // 可有可无
     // 发送POST请求
 		m_httpClient.POST("{\"auth\": {\"identity\": {\"methods\": [\"password\"],\"password\": {\"user\": {\"name\": \"Roland\",\"password\": \"roland66\",\"domain\": {\"name\": \"hw098127479\"}}}},\"scope\": {\"project\": {\"name\": \"cn-north-4\"}}}}");
 		m_apiToken = m_httpClient.header("X-Subject-Token");
     m_httpClient.end();
+    return 0;
 	}
 	else{
 		ESP_LOGE(TAG, "Error in WiFi connection");
+    return 1;
 	}
 
 }

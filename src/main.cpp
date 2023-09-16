@@ -18,6 +18,8 @@
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLE2902.h>
+#include "ERNIE-Bot.h"
+
 
 static char *wifi_ssid = "苹果手机 15 Pro max ultra";
 static char *wifi_password = "roland66";
@@ -35,6 +37,8 @@ hw_timer_t*   Timer0 = NULL; // 预先定义一个指针来存放定时器的位
 String sis_payload;// 语音识别后的文本
 static uint8_t BLE_set_flag = 0; // wifi设置步骤记录，0-未开始设置wifi，1-正在设置wifi账号，2-正在设置wifi密码，3-正在添加语音识别热词, 4-正在减少语音识别热词
 API_online sis_api("cn-north-4", "9512b326c85747cbade191a38a51691c"); // 设置云服务器结点、项目ID
+ERNIE_API bot_api;
+String chat_content;
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE, /* clock=*/OLED_SCL, /* data=*/OLED_SDA);
 // OLED显示内容消息队列, 具体内容是uint8数据类型指令
 #define OLED_SHOWING_LEN 1// 1字节指令
@@ -42,14 +46,18 @@ U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE, /* c
 QueueHandle_t OLED_showing_queue = NULL;
 /* UI指令内容
 0-显示待机内容
-4-组件准备中
 1-显示录音中UI
 2-显示识别中UI
 3-显示语音识别结果
+4-组件准备中
 5-没网了
 6-语音识别的录音时长按时间过短
 7-网络质量不佳，重新操作
 8-内存不足，malloc失败
+9-语音识别内容为空文本-你说话了O.o?
+10-刚启动时显示尝试连接的wifi名
+11-开始设置WIFI，请输入wifi名
+12-请输入wifi密码
 */
 // Wifi账密内容消息队列, 具体内容是char字符串地址
 #define WIFI_DATA_LEN_MAX 1
@@ -176,35 +184,59 @@ void OLED_Task(void *parameter){
     }
     else if (OLED_showing_state == 3)
     {
-      u8g2.setCursor(20,10); // 设置坐标
-      u8g2.print("==识别内容==");
-      static uint8_t k = 0;
+      static uint32_t k = 0;
       static uint8_t x_add = 0;
-      static uint8_t y_add = 0;
-      for(k = 0,x_add = 0,y_add = 0; k < sis_payload.length(); k++){
-        u8g2.setCursor(3+12*x_add,30+y_add*12); // 设置坐标
-        if(sis_payload[k]>127){
-          //是中文
-          u8g2.setFont(u8g2_font_wqy12_t_gb2312);
-          u8g2.print(sis_payload[k++]);
-          u8g2.print(sis_payload[k++]);
-          u8g2.print(sis_payload[k]);
+      static uint16_t y_add = 0;
+      static uint32_t y_err = 0; // 控制所有字体上移
+      static bool temp_flag = false;
+      y_err = 0;
+      u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+      do{
+        u8g2.clearBuffer();
+        for(k = 0,x_add = 0,y_add = 0; k < chat_content.length()-1; k++){
+          if(10-y_err>0){
+            u8g2.setCursor(0,10-y_err); // 设置坐标
+            u8g2.print("=======Rowling=======");
+          }
+          if(25-y_err+y_add*12>0){
+            u8g2.setCursor(3+6*x_add,25-y_err+y_add*12); // 设置坐标
+            if(chat_content[k]>127){
+              // 是中文
+              u8g2.print(chat_content[k++]);
+              u8g2.print(chat_content[k++]);
+              u8g2.print(chat_content[k]);
+              x_add+=2;
+              temp_flag = true; // 允许刷新屏幕
+            }
+            else{
+              // u8g2.setFont(u8g2_font_samim_16_t_all);
+              u8g2.print(chat_content[k]);
+              temp_flag = true; // 允许刷新屏幕
+              x_add++;
+            }
+            if(x_add >= 20){
+              y_add++;
+              x_add = 0;
+            }
+          }
+          else if(chat_content[k]>127)
+            k+=2;
         }
-        else{
-          u8g2.setFont(u8g2_font_samim_16_t_all);
-          u8g2.print(sis_payload[k]);
+        if(temp_flag){
+          temp_flag = false;
+          u8g2.sendBuffer(); // 同步屏幕
+          vTaskDelay(2);
         }
-        x_add++;
-        if(x_add == 10){
-          y_add++;
-          x_add = 0;
-        }
-      }
-      // u8g2.setCursor(3,50); // 设置坐标
-      // u8g2.print(sis_payload);
+        y_err++;
+      }while(25-y_err+y_add*12 >= 63);
     }
     else if(OLED_showing_state == 4)
     {
+      if((WiFi.status() == WL_CONNECTED)){
+        //显示wifi图标
+        u8g2.setFont(u8g2_font_siji_t_6x10);
+        u8g2.drawGlyph(115, 9, 57882);
+      }
       u8g2.setFont(u8g2_font_wqy12_t_gb2312);
       u8g2.setCursor(25, 30); // 设置坐标
       u8g2.print("组件准备中~~");
@@ -218,7 +250,7 @@ void OLED_Task(void *parameter){
       u8g2.print("请打开wifi:");
       u8g2.print(wifi_ssid);
       u8g2.setCursor(3, 44); // 设置坐标
-      u8g2.print("或蓝牙设置新wifi");
+      u8g2.print("或BLE设置新wifi");
     }
     else if(OLED_showing_state == 6)
     {
@@ -244,11 +276,53 @@ void OLED_Task(void *parameter){
       u8g2.setCursor(10, 55); // 设置坐标
       u8g2.print("请联系作者debug");
     }
-    else if(OLED_showing_state == 6)
+    else if(OLED_showing_state == 9)
     {
       u8g2.setFont(u8g2_font_wqy12_t_gb2312);
       u8g2.setCursor(25, 40); // 设置坐标
       u8g2.print("你说话了O.o？");
+    }
+    else if(OLED_showing_state == 10)
+    {
+      static uint8_t m;
+      static uint8_t x_add;
+      static uint8_t y_add;
+      static String str;
+      str = "SSID：";
+      str += wifi_ssid;
+      u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+      u8g2.setCursor(10, 12); // 设置坐标
+      u8g2.print("正在尝试链接Wifi~~");
+      for(m = 0,x_add = 0,y_add = 0; m < str.length(); m++){
+        u8g2.setCursor(0+6*x_add,26+y_add*12); // 设置坐标
+        if(str[m]>127){
+          // 是中文
+          u8g2.print(str[m++]);
+          u8g2.print(str[m++]);
+          u8g2.print(str[m]);
+          x_add+=2;
+        }
+        else{
+          u8g2.print(str[m]);
+          x_add++;
+        }
+        if(x_add >= 20){
+          y_add++;
+          x_add = 0;
+        }
+      }
+      u8g2.setCursor(0, 60); // 设置坐标
+      u8g2.print("可通过BLEapp指定wifi~");
+    }
+    else if(OLED_showing_state == 11){
+      u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+      u8g2.setCursor(20, 30); // 设置坐标
+      u8g2.print("请输入wifi账号~");
+    }
+    else if(OLED_showing_state == 12){
+      u8g2.setFont(u8g2_font_wqy12_t_gb2312);
+      u8g2.setCursor(20, 30); // 设置坐标
+      u8g2.print("请输入wifi密码~");
     }
     u8g2.sendBuffer(); // 同步屏幕
   }
@@ -313,9 +387,6 @@ void Get_MIC_To_SD_Task(void * parameter){
     while(1);
   }
 
-  queue_temp = 0;
-  xQueueSend(OLED_showing_queue, &queue_temp, 0); // 进入待机模式
-
   // 连接wifi并获取sis_api token
   ESP_LOGI(TAG, "Default wifi: %s", wifi_ssid);
   // 先尝试连接默认wifi,等待蓝牙写入新的wifi账密
@@ -325,10 +396,14 @@ void Get_MIC_To_SD_Task(void * parameter){
     {
       // case 0:
       case 1:
+        queue_temp = 11;
+        xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY); // 通知UI显示输入账号
         xQueueReceive(Wifi_data_queue, &wifi_ssid, portMAX_DELAY);
         ESP_LOGI(TAG, "Wifi账号设置完毕:%s，请输入Wifi密码~", wifi_ssid);
         break;
       case 2:
+        queue_temp = 12;
+        xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY); // 通知UI显示输入密码
         xQueueReceive(Wifi_data_queue, &wifi_password, portMAX_DELAY);
         ESP_LOGI(TAG, "Wifi密码设置完毕:%s", wifi_password);
         WiFi.begin(wifi_ssid, wifi_password);
@@ -336,18 +411,25 @@ void Get_MIC_To_SD_Task(void * parameter){
       default:
         ESP_LOGI(TAG, "Waiting to link wifi: %s", wifi_ssid);
         vTaskDelay(500);
+        queue_temp = 10;
+        xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY); // 告诉OLED显示待联网UI
         break;
     }
   }while(WiFi.status() != WL_CONNECTED);
   ESP_LOGI(TAG, "Succeed in linking wifi: %s", wifi_ssid);
 
   sis_api.start(); // 获取token
+  bot_api.start();
   sis_api.queryHotList(); // 查询云端并更新本地热词表
+  // //test
+  // bot_api.chat("你觉得编程可以作为兴趣爱好吗?", &chat_content);
+  // Serial.println(chat_content);
   // sis_api.hAddData("你好");
   // sis_api.createHotList();
 
-  // test
-  // mic_I2SINMPSampler.start();
+  // 进入待机模式
+  queue_temp = 0;
+  xQueueSend(OLED_showing_queue, &queue_temp, 0);
   while(1){
     if(digitalRead(Record_Key) == 0){
       recordFlag = true;
@@ -366,7 +448,7 @@ void Get_MIC_To_SD_Task(void * parameter){
         // Serial.println("demo");
         bytes_read = mic_I2SINMPSampler.read(samples_read, i2s_INMP_config.dma_buf_len);
         for(int i = 0; i < bytes_read/sizeof(i2s_INMP_sample_t); i++){
-          samples_read[i]*=10;
+          samples_read[i]*=11;
           if(samples_read[i]>32767)
             samples_read[i] = 32767;
           else if(samples_read[i] < -32768)
@@ -388,12 +470,40 @@ void Get_MIC_To_SD_Task(void * parameter){
       char *base64Data = FiletoBase64(myfile);
       myfile.close();
       // 将wav文件的base64编码POST到SIS，接收返回数据
+sis_api_again:
       err = sis_api.sis(base64Data, &sis_payload);
+      ESP_LOGD(TAG, "err=%d", err);
       switch(err)
       {
+        case -2: // 与服务器的连接断开了
+          goto sis_api_again; //重新来一次
+          break;
         case 0: // 成功识别
-          queue_temp = 3;
-          xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY); // 告诉OLED显示语音识别结果UI
+          // 将语音转文本的数据传给模型
+bot_api_again:
+          err = bot_api.chat(sis_payload, &chat_content);
+          ESP_LOGD(TAG, "err=%d", err);
+          switch (err)
+          {
+            case -2: // 与服务器的连接断开了
+              goto bot_api_again; //重新来一次
+              break;
+            case 0: // 成功聊天
+              queue_temp = 3;
+              Serial.println(1);
+              xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY); // 告诉OLED显示语音识别结果UI
+              Serial.println(2);
+              break;
+            case 1:// 没网了
+              queue_temp = 5;
+              xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY);
+              break;
+            case 2:// 网络连接不畅
+              queue_temp = 7;
+              xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY);
+              break;
+          }
+          // Serial.println(chat_content);
           break;
         case 1: // 没网了
           queue_temp = 5;
@@ -416,7 +526,6 @@ void Get_MIC_To_SD_Task(void * parameter){
           xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY);
           break;
       }
-      ESP_LOGI(TAG, "识别结果:%s" ,sis_payload.c_str());
       free(base64Data);
       base64Data = NULL;
       while(digitalRead(Record_Key) == 1); //保持显示识别结果,再次点按回到待机状态
@@ -454,6 +563,7 @@ class MyCallbacks: public BLECharacteristicCallbacks {
       static char *wifi_password = NULL;
       uint16_t i = 0;
       int8_t err;
+      uint8_t queue_temp;
       std::string rxValue = pCharacteristic->getValue();
       if (rxValue.length() > 0 && WiFi.status() != WL_CONNECTED) {
         switch (BLE_set_flag)
@@ -540,11 +650,11 @@ void BLE_Handler_Task(void *parameter){
 
   BLEService *bService = bServer->createService(SERVICE_UUID); // 实例化BLE服务
 
-  bTxCharacteristic = bService->createCharacteristic(
-										CHARACTERISTIC_UUID_TX, // UUID
-										BLECharacteristic::PROPERTY_NOTIFY // 属性
-									); // 实例化BLE特征
-  bTxCharacteristic->addDescriptor(new BLE2902()); // 添加一个0x2902描述符对象
+  // bTxCharacteristic = bService->createCharacteristic(
+	// 									CHARACTERISTIC_UUID_TX, // UUID
+	// 									BLECharacteristic::PROPERTY_NOTIFY // 属性
+	// 								); // 实例化BLE特征
+  // bTxCharacteristic->addDescriptor(new BLE2902()); // 添加一个0x2902描述符对象
 
   bRxCharacteristic = bService->createCharacteristic(
 											 CHARACTERISTIC_UUID_RX, // UUID
@@ -557,16 +667,16 @@ void BLE_Handler_Task(void *parameter){
   bServer->getAdvertising()->start(); // 开始广播，等待主机链接
   ESP_LOGI(TAG, "Waiting a client connection to notify...");
   while(1){
-    if (deviceConnected) {
-      // txValue = &i;
-      // txLenth = 1;
-      txValue = (uint8_t *)"This is Rowling\n";
-      txLenth = 16;
-      bTxCharacteristic->setValue(txValue, txLenth);// 缓冲区上弹
-      bTxCharacteristic->notify();// 发布通知
-      i++;
-      vTaskDelay(500); // bluetooth stack will go into congestion, if too many packets are sent
-    }
+    // if (deviceConnected) {
+    //   // txValue = &i;
+    //   // txLenth = 1;
+    //   txValue = (uint8_t *)"This is Rowling\n";
+    //   txLenth = 16;
+    //   bTxCharacteristic->setValue(txValue, txLenth);// 缓冲区上弹
+    //   bTxCharacteristic->notify();// 发布通知
+    //   i++;
+    //   vTaskDelay(500); // bluetooth stack will go into congestion, if too many packets are sent
+    // }
 
     // disconnecting
     if (!deviceConnected && oldDeviceConnected) {
@@ -602,7 +712,7 @@ void setup(){
   // xTaskCreate(Key_Task, "Key_Task", 1024*2, NULL, 1, NULL);
   xTaskCreate(OLED_Task, "OLED_Task", 1024*4, NULL, 1, &OLED_Task_Handle);
   xTaskCreate(Get_MIC_To_SD_Task, "Get_MIC_To_SD_Task", 1024*6, NULL, 1, NULL);
-  // xTaskCreate(BLE_Handler_Task, "BLE_Handler_Task", 1024*10, NULL, 1, NULL);
+  xTaskCreate(BLE_Handler_Task, "BLE_Handler_Task", 1024*10, NULL, 1, NULL);
 
   // 配置定时器0中断
   // Timer0 = timerBegin(0, 80, true); // 初始化定时器，80分频至1Mhz,

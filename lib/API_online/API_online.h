@@ -30,15 +30,16 @@ public:
                           .num=0,
                           .size=0
                         }; // 热词表
+  API_online(void);
   API_online(String endpoint, String project_id);
-  void start();// 尝试访问API链接，并获取token
+  int8_t start();// 尝试访问API链接，并获取token
   int16_t sis(const char *base64Data, String *sis_payload);
   int8_t createHotList(void);
   int8_t queryHotList(void);
   int8_t updateHotList(void);
   int8_t hAddData(String data);
   int8_t hReduceData(const char *data);
-  // uint8_t getToken();
+  // int8_t getToken(void);
 
 };
 
