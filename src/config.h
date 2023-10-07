@@ -5,8 +5,8 @@
 /*************/
 //解释，本项目所有带 INMP 关键字的变量/常量都表示与INMP441麦克风模块相绑定
 
-// 整个系统的音频采样率
-#define SAMPLE_RATE 32000
+// 整个系统的音频宏配置
+#define SAMPLE_RATE 16000 // 采样率
 
 // INMP441麦克风占用I2S通道
 #define MIC_INMP_I2SPORT      I2S_NUM_0

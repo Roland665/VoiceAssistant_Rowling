@@ -1,8 +1,10 @@
 #pragma once
 
 #include "I2SSampler.h"
+#include "config.h"
 
-typedef int16_t i2s_INMP_sample_t;
+typedef int16_t i2s_INMP_sample_t; // i2s采样位深
+
 /**
  * I2S Class for both the ADC or I2S-standard sampler
  **/

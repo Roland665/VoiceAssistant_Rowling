@@ -20,9 +20,10 @@
 #include <BLE2902.h>
 #include "ERNIE-Bot.h"
 
-
-static char *wifi_ssid = "苹果手机 15 Pro max ultra";
-static char *wifi_password = "roland66";
+// static char *wifi_ssid = "苹果手机 15 Pro max ultra";
+// static char *wifi_password = "roland66";
+static char *wifi_ssid = "520";
+static char *wifi_password = "12345678";
 // static char *wifi_ssid = "Xiaomi_4c";
 // static char *wifi_password = "l18005973661";
 bool recordFlag = false;//是否开始录音标志位，true-开始
@@ -196,7 +197,7 @@ void OLED_Task(void *parameter){
         for(k = 0,x_add = 0,y_add = 0; k < chat_content.length()-1; k++){
           if(10-y_err>0){
             u8g2.setCursor(0,10-y_err); // 设置坐标
-            u8g2.print("=======Rowling=======");
+            u8g2.print("========Rowling=======");
           }
           if(25-y_err+y_add*12>0){
             u8g2.setCursor(3+6*x_add,25-y_err+y_add*12); // 设置坐标
@@ -370,7 +371,7 @@ void Get_MIC_To_SD_Task(void * parameter){
   ESP_LOGI(TAG, "SD Card Size: %lluMB\r\n", cardSize);
 
   //实例化一个wav文件写手 对象
-  WavFileWriter mic_WavFileWriter(wavPath, SAMPLE_RATE);
+  WavFileWriter mic_WavFileWriter(wavPath, SAMPLE_RATE, sizeof(i2s_INMP_sample_t));
 
   // 实例化一个INMP441的采样器 对象
   I2SINMPSampler mic_I2SINMPSampler(MIC_INMP_I2SPORT, i2s_INMP_config, i2s_INMP_pin_config);
@@ -430,6 +431,7 @@ void Get_MIC_To_SD_Task(void * parameter){
   // 进入待机模式
   queue_temp = 0;
   xQueueSend(OLED_showing_queue, &queue_temp, 0);
+
   while(1){
     if(digitalRead(Record_Key) == 0){
       recordFlag = true;

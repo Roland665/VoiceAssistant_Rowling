@@ -13,7 +13,7 @@ private:
   File m_file;
 
 public:
-  WavFileWriter(const char *wavPath, int sample_rate);
+  WavFileWriter(const char *wavPath, int sample_rate, uint8_t bytes_per_sample);
   void start();
   void write(const uint8_t *samples, size_t sample_size, int count);
   void finish();

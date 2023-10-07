@@ -4,9 +4,12 @@
 
 static const char *TAG = "Wav_Write";
 
-WavFileWriter::WavFileWriter(const char *wavPath, int sample_rate)
+WavFileWriter::WavFileWriter(const char *wavPath, int sample_rate, uint8_t bytes_per_sample)
 {
   m_header.sample_rate = sample_rate;
+  m_header.bits_per_sample = bytes_per_sample*8;
+  m_header.block_align = m_header.num_channels * bytes_per_sample;
+  m_header.byte_rate = sample_rate * m_header.block_align;
   m_wavPath = wavPath;
 }
 
