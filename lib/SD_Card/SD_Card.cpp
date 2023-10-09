@@ -1,257 +1,245 @@
-#include "Arduino.h"
-#include "SD_Card.h"
-#include "config.h"
 
-// static const char* TAG = "SD_Card";
-// void uploadSDCard(void){
-//     //挂载MicroSD Card
-//   SPIClass SD_SPI_Config;
-//   SD_SPI_Config.begin(SD_SPI_SCLK, SD_SPI_MISO, SD_SPI_MOSI, SD_SPI_CS);
-//   while(!SD.begin(SD_SPI_CS, SD_SPI_Config)){
-//     Serial.println("Card Mount Failed");
-//     delay(1000);
-//   }
-//   //检测SD卡型号
-//   uint8_t cardType = SD.cardType();
-//   while(cardType == CARD_NONE){
-//     Serial.println("No SD card attached");
-//     vTaskDelay(1000);
-//     cardType = SD.cardType();
-//   }
-//   Serial.print("SD Card Type: ");
-//   switch (cardType)
-//   {
-//   case CARD_MMC:
-//     Serial.println("MMC");
-//     break;
-//   case CARD_SDHC:
-//     Serial.println("SDHC");
-//     break;
-//   case CARD_SD:
-//     Serial.println("SDSC");
-//     break;
-//   default:
-//     Serial.println("UNKNOWN");
-//     break;
-//   }
-//   //检测SD卡大小
-//   uint64_t cardSize = SD.cardSize() / (1024 * 1024);
-//   ESP_LOGI(TAG, "SD Card Size: %lluMB\r\n", cardSize);
-// }
+/************************
+ * 本SD卡管理类是基于SPI-SD模块，仅在Micro-SD模块上试验过并成功
+*/
 
+#include "sd_card.h"
+#include <string.h>
+#include <sys/unistd.h>
+#include <sys/stat.h>
+
+const char* TAG = "sd_card";
 
 /**
- * @brief    获取SD卡内目录细节
- * @param    fs       : 文件操作对象，只能是SD库中的SD对象
- * @param    dirname  : 目录地址
- * @param    levels   : 细节深度
- * @retval   void
- */
-void listDir(fs::FS &fs, const char * dirname, uint8_t levels){
-  Serial.printf("Listing directory: %s\n", dirname);
+  * @brief    sd卡操作类构造函数
+  * @param    mount_point : 挂载点，请以“/”开头
+  * @param    bus_cfg     : SPI总线配置信息
+  * @param    spi_cs_num  : SD卡模块片选引脚号
+  */
+sd_card::sd_card(const char *mount_point, spi_bus_config_t bus_cfg, gpio_num_t spi_cs_num) {
+  esp_err_t err;
+  // 值拷贝挂载点地址
+  m_mount_point = (char *)malloc(sizeof(char) * strlen(mount_point)+1);
+  strcpy(m_mount_point, mount_point);
 
-  File root = fs.open(dirname);
-  if(!root){
-    Serial.println("Failed to open directory");
-    return;
-  }
-  if(!root.isDirectory()){
-    Serial.println("Not a directory");
-    return;
-  }
+  // 挂载外部存储的配置信息
+  esp_vfs_fat_sdmmc_mount_config_t mount_config = {
+      .format_if_mount_failed = false, // 挂载失败时禁止格式化卡
+      .max_files = 5,
+      .allocation_unit_size = 16 * 1024
+  };
 
-  File file = root.openNextFile();
-  while(file){
-    if(file.isDirectory()){
-      Serial.print("  DIR : ");
-      Serial.println(file.name());
-      if(levels){
-        listDir(fs, file.name(), levels -1);
-      }
-    } else {
-      Serial.print("  FILE: ");
-      Serial.print(file.name());
-      Serial.print("  SIZE: ");
-      Serial.println(file.size());
+  ESP_LOGI(TAG, "Using SPI peripheral to initialize SD card");
+  ESP_ERROR_CHECK(spi_bus_initialize((spi_host_device_t)m_host.slot, &bus_cfg, SDSPI_DEFAULT_DMA)); // 初始化spi总线
+
+  // 挂载卡
+  ESP_LOGI(TAG, "Mounting filesystem");
+  sdspi_device_config_t slot_config = SDSPI_DEVICE_CONFIG_DEFAULT(); // 获取默认的 SDSPI 设备的配置信息
+  slot_config.gpio_cs = spi_cs_num;
+  slot_config.host_id = (spi_host_device_t)m_host.slot; // 设置主机 ID
+  while(1){
+    // 获取在 VFS 中注册的 SD 卡的 FAT 文件系统
+    err = esp_vfs_fat_sdspi_mount(mount_point, &m_host, &slot_config, &mount_config, &m_card);
+    if(err == ESP_OK){
+      ESP_LOGI(TAG, "Filesystem mounted");
+      break;
     }
-    file = root.openNextFile();
-  }
-}
-
-/**
- * @brief    新建子目录（新建文件夹）
- * @param    fs       : 文件操作对象，只能是SD库中的SD对象
- * @param    path     : 文件夹所在路径
- * @retval   void
- */
-void createDir(fs::FS &fs, const char * path){
-  Serial.printf("Creating Dir: %s\n", path);
-  if(fs.mkdir(path)){
-    Serial.println("Dir created");
-  } else {
-    Serial.println("mkdir failed");
-  }
-}
-
-
-/**
- * @brief    删除子目录（删除文件夹）
- * @param    fs       : 文件操作对象，只能是SD库中的SD对象
- * @param    path     : 文件夹所在路径
- * @retval   void
- */
-void removeDir(fs::FS &fs, const char * path){
-  Serial.printf("Removing Dir: %s\n", path);
-  if(fs.rmdir(path)){
-    Serial.println("Dir removed");
-  } else {
-    Serial.println("rmdir failed");
-  }
-}
-
-
-/**
- * @brief    读取文件内容
- * @param    fs       : 文件操作对象，只能是SD库中的SD对象
- * @param    path     : 文件路径
- * @retval   void
- */
-void readFile(fs::FS &fs, const char * path){
-  Serial.printf("Reading file: %s\n", path);
-
-  File file = fs.open(path);
-  if(!file){
-    Serial.println("Failed to open file for reading");
-    return;
-  }
-
-  Serial.print("Read from file: ");
-  while(file.available()){
-    Serial.write(file.read());
-  }
-  file.close();
-}
-
-
-/**
- * @brief    写文件内容(先清空后写入)
- * @param    fs       : 文件操作对象，只能是SD库中的SD对象
- * @param    path     : 文件路径
- * @param    message  : 写入内容
- * @retval   void
- */
-void writeFile(fs::FS &fs, const char * path, const char * message){
-  Serial.printf("Writing file: %s\n", path);
-
-  File file = fs.open(path, FILE_WRITE);
-  if(!file){
-    Serial.println("Failed to open file for writing");
-    return;
-  }
-  if(file.print(message)){
-    Serial.println("File written");
-  } else {
-    Serial.println("Write failed");
-  }
-  file.close();
-}
-
-
-/**
- * @brief    写文件内容(追加式写入)
- * @param    fs       : 文件操作对象，只能是SD库中的SD对象
- * @param    path     : 文件路径
- * @param    message  : 写入内容
- * @retval   void
- */
-void appendFile(fs::FS &fs, const char * path, const char * message){
-  Serial.printf("Appending to file: %s\n", path);
-
-  File file = fs.open(path, FILE_APPEND);
-  if(!file){
-    Serial.println("Failed to open file for appending");
-    return;
-  }
-  if(file.print(message)){
-      Serial.println("Message appended");
-  } else {
-    Serial.println("Append failed");
-  }
-  file.close();
-}
-
-
-/**
- * @brief    重命名文件
- * @param    fs        : 文件操作对象，只能是SD库中的SD对象
- * @param    path1     : 文件原路径
- * @param    path2     : 文件新路径
- * @retval   void
- */
-void renameFile(fs::FS &fs, const char * path1, const char * path2){
-  Serial.printf("Renaming file %s to %s\n", path1, path2);
-  if (fs.rename(path1, path2)) {
-    Serial.println("File renamed");
-  } else {
-    Serial.println("Rename failed");
-  }
-}
-
-
-/**
- * @brief    删除文件
- * @param    fs        : 文件操作对象，只能是SD库中的SD对象
- * @param    path      : 文件路径
- * @retval   void
- */
-void deleteFile(fs::FS &fs, const char * path){
-  Serial.printf("Deleting file: %s\n", path);
-  if(fs.remove(path)){
-    Serial.println("File deleted");
-  } else {
-    Serial.println("Delete failed");
-  }
-}
-
-//意义不明
-void testFileIO(fs::FS &fs, const char * path){
-  File file = fs.open(path);
-  static uint8_t buf[512];
-  size_t len = 0;
-  uint32_t start = millis();
-  uint32_t end = start;
-  if(file){
-    len = file.size();
-    size_t flen = len;
-    start = millis();
-    while(len){
-      size_t toRead = len;
-      if(toRead > 512){
-        toRead = 512;
-      }
-      file.read(buf, toRead);
-      len -= toRead;
+    else if(err == ESP_ERR_INVALID_STATE){
+      ESP_LOGW(TAG, "SD card was already mount!");
+      break;
     }
-    end = millis() - start;
-    Serial.printf("%u bytes read for %u ms\n", flen, end);
-    file.close();
-  } else {
-    Serial.println("Failed to open file for reading");
+    else if(err == ESP_ERR_NO_MEM){
+      ESP_LOGE(TAG, "Memory can not be allocated for vfs-fat! Program is dangerous!");
+      break;
+    }
+    else if(err == ESP_FAIL){
+      ESP_LOGE(TAG, "Please check that the sd card is installed correctly!");
+      vTaskDelay(1000);
+    }
+    else{
+      ESP_LOGE(TAG, "Mount failed due to an unknown error...qwq");
+      vTaskDelay(1000);
+    }
   }
 
+  // 打印卡的属性
+  sdmmc_card_print_info(stdout, m_card);
+}
 
-  file = fs.open(path, FILE_WRITE);
-  if(!file){
-    Serial.println("Failed to open file for writing");
-    return;
+
+/**
+  * @brief    请在文件操作的行为前调用此函数
+  * @param    path : 文件名，可以以“/”开头，也可以单单只写文件名称
+  * @param    type : 文件操作类型，符合 c/c++ 的 fopen 函数第二个传参即可 如 "r","w","a"...
+  * @retval   0-正常开始文件操作
+  */
+rowl_err_t sd_card::start(const char* path, const char *type){
+  // 打开文件
+  char *whole_path;
+  if(path[0] != '/'){
+    whole_path = (char *)malloc(sizeof(char)*(1+strlen(m_mount_point)+strlen(path)+1));
+    strcpy(whole_path, m_mount_point);
+    strcat(whole_path, "/");
+    strcat(whole_path, path);
+  }
+  else{
+    whole_path = (char *)malloc(sizeof(char)*(strlen(m_mount_point)+strlen(path)+1));
+    strcpy(whole_path, m_mount_point);
+    strcat(whole_path, path);
   }
 
-  size_t i;
-  start = millis();
-  for(i=0; i<2048; i++){
-    file.write(buf, 512);
+  m_file = fopen(whole_path, type);
+  // assert(m_file);
+  if(m_file == NULL){
+    ESP_LOGE(TAG, "m_file didn`t be created, whole_path=%s", whole_path);
   }
-  end = millis() - start;
-  Serial.printf("%u bytes written for %u ms\n", 2048 * 512, end);
-  file.close();
+  return 0;
+}
+
+
+/**
+  * @brief    向文件内写入数据，调用此方法前必须执行 start 方法并且第二个传参不能是 "r"
+  * @param    buf       : 待写数据缓冲区
+  * @param    data_size : 待写数据的单数据大小(单位byte)
+  * @param    number    : 待写数据量
+  * @retval   0-成功写入，1-指定数据量未全写入
+  */
+rowl_err_t sd_card::write(const void *buf, size_t data_size, size_t number){
+  // 写数据
+  size_t count = fwrite(buf, data_size, number, m_file);
+  if(count == number )
+    return 0;
+  else{
+    ESP_LOGE(TAG, "Didn`t writed all number of buffer! Just writed %d/%d", count, number);
+    return 1;
+  }
+}
+
+
+/**
+  * @brief    读取文件数据，调用此方法前必须执行 start 方法并且第二个传参不能是 "w"、"a"
+  * @param    buf       : 读出数据存放缓冲
+  * @param    data_size : 读出数据的单数据大小(单位byte)
+  * @param    number    : 目标读出数据量
+  * @retval   0-成功读取， 1-未读出指定数据量
+  */
+rowl_err_t sd_card::read(void *buf, size_t data_size, size_t number){
+  // 读数据
+  size_t count = fread(buf, data_size, number, m_file);
+  if(count == number )
+    return 0;
+  else{
+    ESP_LOGE(TAG, "Didn`t writed all number of buffer! Just writed %d/%d", count, number);
+    return 1;
+  }
+}
+
+
+/**
+  * @brief  把fseek函数封装进类，使用方法参考c/c++ fseek函数
+  * @retval 0-成功执行
+  */
+rowl_err_t sd_card::seek(long pos, int mode){
+  fseek(m_file, pos, mode);
+  return 0;
+}
+
+
+/**
+  * @brief    结束本次文件操作
+  * @param    void
+  * @retval   0-成功结束
+  */
+rowl_err_t sd_card::stop(void){
+  return fclose(m_file);
+}
+
+
+/**
+  * @brief    将指定文件进行Base64编码
+  * @param    path : 文件名，可以以“/”开头，也可以单单只写文件名称
+  * @retval   编码后数据存放区首地址指针
+  */
+char * sd_card::enBase64(const char* path){
+  struct stat file_stat;
+  const char* to_base64_table = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/"; // 64位编码表
+  // 打开文件
+  char *whole_path;
+  if(path[0] != '/'){
+    whole_path = (char *)malloc(sizeof(char)*(1+strlen(m_mount_point)+strlen(path)+1));
+    strcpy(whole_path, m_mount_point);
+    strcat(whole_path, "/");
+    strcat(whole_path, path);
+  }
+  else{
+    whole_path = (char *)malloc(sizeof(char)*(strlen(m_mount_point)+strlen(path)+1));
+    strcpy(whole_path, m_mount_point);
+    strcat(whole_path, path);
+  }
+  m_file = fopen(whole_path, "r");
+  if(m_file == NULL){
+    ESP_LOGE(TAG, "The file to be encoded does not exist");
+    return NULL;
+  }
+
+  // 获取文件大小并打印
+  stat(whole_path, &file_stat); // 获取文件所有信息
+  size_t file_size = file_stat.st_size;
+  ESP_LOGI(TAG, "File:%s  Size: %d", path, file_size);
+
+  // 计算文件大小与3byte的最大公倍数之差
+  uint8_t size_err = 0;
+  if(file_size % 3 != 0){
+    size_err = 3 - file_size%3;
+  }
+
+  uint8_t fileDatas[3];//文件读取临时存放区
+
+  // 开空间存放base64格式的数据
+  char *base64_data = (char*)malloc(sizeof(char) * (4 * (file_size+size_err)/3 + 1));
+  if(base64_data == NULL){
+    ESP_LOGE(TAG, "Insufficient heap space, *base64_data* create failed");
+    return NULL;
+  }
+  // 开始base64编码
+  int dataIndex = 0;
+  int i = 0;
+  for(; i < file_size/3; i++){
+    read(fileDatas, sizeof(uint8_t), 3);
+    base64_data[dataIndex++] = to_base64_table[(fileDatas[0] & 0xFC)>>2];// 取第一字节的前6bit
+    base64_data[dataIndex++] = to_base64_table[((fileDatas[0] & 0x03)<<4) + ((fileDatas[1] & 0xF0)>>4)]; //取第一字节的后2bit和第二字节的前4bit
+    base64_data[dataIndex++] = to_base64_table[((fileDatas[1] & 0x0F)<<2) + ((fileDatas[2] & 0xC0)>>6)]; //取第二字节的后4bit和第三字节的前2bit
+    base64_data[dataIndex++] = to_base64_table[(fileDatas[2] & 0x3F)]; //取第三字节的后6bit
+  }
+  if(size_err == 2){
+    read(fileDatas, sizeof(uint8_t), 1);
+    base64_data[dataIndex++] = to_base64_table[(fileDatas[0] & 0xFC)>>2]; // 取第一字节的前6bit
+    base64_data[dataIndex++] = to_base64_table[(fileDatas[0] & 0x03)<<4]; // 取第一字节的后2bit和补零
+    base64_data[dataIndex++] = '='; // 补零
+    base64_data[dataIndex++] = '='; // 补零
+  }
+  else if(size_err == 1){
+    read(fileDatas, sizeof(uint8_t), 2);
+    base64_data[dataIndex++] = to_base64_table[(fileDatas[0] & 0xFC)>>2]; // 取第一字节的前6bit
+    base64_data[dataIndex++] = to_base64_table[((fileDatas[0] & 0x03)<<4) + ((fileDatas[1] & 0xF0)>>4)]; //取第一字节的后2bit和第二字节的前4bit
+    base64_data[dataIndex++] = to_base64_table[(fileDatas[1] & 0x0F)<<2]; // 取第二字节的后4bit和补零
+    base64_data[dataIndex++] = '='; // 补零
+  }
+  base64_data[dataIndex] = 0;//最后一位补停止位
+  ESP_LOGI(TAG, "The base64 encoding succeed, length=%d", strlen(base64_data));
+  return base64_data;
+}
+
+
+/**
+  * @brief 析构函数，释放此类时解挂sd卡
+  */
+sd_card::~sd_card()
+{
+  // 解除sd卡挂载
+  ESP_ERROR_CHECK(esp_vfs_fat_sdcard_unmount(m_mount_point, m_card));
+  ESP_ERROR_CHECK(spi_bus_free((spi_host_device_t)m_host.slot));
+  free(m_mount_point);
+  m_mount_point = NULL;
+  ESP_LOGI(TAG, "Card unmounted");
 }

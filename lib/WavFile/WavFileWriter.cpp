@@ -4,8 +4,9 @@
 
 static const char *TAG = "Wav_Write";
 
-WavFileWriter::WavFileWriter(const char *wavPath, int sample_rate, uint8_t bytes_per_sample)
+WavFileWriter::WavFileWriter(sd_card *_sdcard, const char *wavPath, int sample_rate, uint8_t bytes_per_sample)
 {
+  m_sdcard = _sdcard;
   m_header.sample_rate = sample_rate;
   m_header.bits_per_sample = bytes_per_sample*8;
   m_header.block_align = m_header.num_channels * bytes_per_sample;
@@ -18,22 +19,15 @@ WavFileWriter::WavFileWriter(const char *wavPath, int sample_rate, uint8_t bytes
  * @param    void
  * @retval   void
  */
-void WavFileWriter::start()
+void WavFileWriter::start(void)
 {
   ESP_LOGI(TAG, "Start writing wav file", m_file_size);
-  // write out the header - we'll fill in some of the blanks later
-  // fwrite(&m_header, sizeof(wav_header_t), 1, m_fp);
-  // m_file_size = sizeof(wav_header_t);
 
-  m_file = SD.open(m_wavPath, FILE_WRITE);
-  if(!m_file){
-    Serial.println("Failed to open file for writing");
-    return;
-  }
+  if(!m_sdcard->start(m_wavPath, "w"))
+    ESP_LOGE(TAG, "Failed to open file for writing");
   //写入 wav文件头
-  m_file.write((uint8_t*)&m_header, sizeof(wav_header_t));
+  m_sdcard->write(&m_header, sizeof(wav_header_t), 1);
   m_file_size = sizeof(wav_header_t);
-
 }
 
 /**
@@ -46,9 +40,7 @@ void WavFileWriter::start()
 void WavFileWriter::write(const uint8_t *samples, size_t sample_size, int count)
 {
   // write the samples and keep track of the file size so far
-  for(int i = 0; i < count; i++){
-    m_file.write(samples, sample_size);
-  }
+  m_sdcard->write(samples, sample_size, count);
   // fwrite(samples, sizeof(int16_t), count, m_fp);
   m_file_size += sample_size * count;
 }
@@ -64,18 +56,11 @@ void WavFileWriter::write(const uint8_t *samples, size_t sample_size, int count)
 void WavFileWriter::finish()
 {
   ESP_LOGI(TAG, "Finishing wav file size: %d", m_file_size);
-  // now fill in the header with the correct information and write it again
+  // 往wav头填充新的信息
   m_header.subchunk2_size = m_file_size - sizeof(wav_header_t);
   m_header.chunk_size = m_file_size - 8;
-  m_file.seek(0, SeekSet);
-  m_file.write((uint8_t*)&m_header, sizeof(wav_header_t));
-  // fseek(m_fp, 0, SEEK_SET);
-  // fwrite(&m_header, sizeof(wav_header_t), 1, m_fp);
-  m_file.close();
-  // m_file = SD.open(m_wavPath, FILE_READ);
-  // ESP_LOGI(TAG, "  FILE: %s", m_file.name());
-  // ESP_LOGI(TAG, "  SIZE: %d", m_file.size());
-  // String a64 = m_file.readString();
-  // ESP_LOGI(TAG, "ReadString successfully");
-  // m_file.close();
+
+  m_sdcard->seek(0, SEEK_SET); // 文件操作偏移量指向文件开头
+  m_sdcard->write(&m_header, sizeof(wav_header_t), 1); // 写新的wav头
+  m_sdcard->stop(); // 结束wav文件编写
 }

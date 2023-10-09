@@ -4,8 +4,8 @@
 
 static const char* TAG = "I2S";
 
-I2SSampler::I2SSampler(i2s_port_t i2sPort, const i2s_config_t &i2s_config) 
-    : m_i2sPort(i2sPort), m_i2s_config(i2s_config){
+I2SSampler::I2SSampler(i2s_port_t i2sPort, const i2s_config_t &i2s_config, const i2s_pin_config_t &i2s_pin_config)
+    : m_i2sPort(i2sPort), m_i2s_config(i2s_config), m_i2s_pin_config(i2s_pin_config){
     }
 
 void I2SSampler::start()

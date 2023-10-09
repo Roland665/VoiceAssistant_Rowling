@@ -7,18 +7,30 @@
 #include <Arduino.h>
 #include "config.h"
 #include "WavFileWriter.h"
-#include "SD_Card.h"
+#include "sd_card.h"
+#include "I2SOutput.h"
 #include <esp_task_wdt.h>
 #include "I2SINMPSampler.h"
 #include <WiFi.h>
 #include "API_online.h"
-#include "myBase64.h"
 #include <driver/gpio.h>
 #include <U8g2lib.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLE2902.h>
 #include "ERNIE-Bot.h"
+
+#include "driver/i2s.h"
+#include "driver/gpio.h"
+
+#include <string.h>
+#include <sys/unistd.h>
+#include <sys/stat.h>
+#include "esp_vfs_fat.h"
+#include "sdmmc_cmd.h"
+
+
+static const char* TAG = "Roland";
 
 // static char *wifi_ssid = "苹果手机 15 Pro max ultra";
 // static char *wifi_password = "roland66";
@@ -27,12 +39,7 @@ static char *wifi_password = "12345678";
 // static char *wifi_ssid = "Xiaomi_4c";
 // static char *wifi_password = "l18005973661";
 bool recordFlag = false;//是否开始录音标志位，true-开始
-static const char* TAG = "Roland";
 bool LEDT_flag = false;
-int8_t EC11_dir = 0; // EC11旋转编码器旋转方向，顺时针为1，静止为0，逆时针为-1
-int16_t EC11_count = 0; // EC11旋转脉冲数，正数为顺时针旋转数
-bool EC11A_flag = false; //是否检测到EC11 A端的脉冲标志位
-bool EC11B_flag = false; //是否检测到EC11 B端的脉冲标志位
 hw_timer_t*   Timer0 = NULL; // 预先定义一个指针来存放定时器的位置
 #define EC11_CD_TIME 4 // 4ms消抖
 String sis_payload;// 语音识别后的文本
@@ -41,6 +48,7 @@ API_online sis_api("cn-north-4", "9512b326c85747cbade191a38a51691c"); // 设置�
 ERNIE_API bot_api;
 String chat_content;
 U8G2_SSD1306_128X64_NONAME_F_HW_I2C u8g2(U8G2_R0, /* reset=*/U8X8_PIN_NONE, /* clock=*/OLED_SCL, /* data=*/OLED_SDA);
+sd_card *rowl_sd; // 挂载的TF卡对象
 // OLED显示内容消息队列, 具体内容是uint8数据类型指令
 #define OLED_SHOWING_LEN 1// 1字节指令
 #define OLED_SHOWING_SIZE sizeof(uint8_t)
@@ -67,6 +75,46 @@ QueueHandle_t Wifi_data_queue = NULL;
 
 /***任务句柄***/
 TaskHandle_t OLED_Task_Handle;
+
+
+#define EXAMPLE_MAX_CHAR_SIZE    64
+static esp_err_t s_example_write_file(const char *path, char *data)
+{
+    ESP_LOGI(TAG, "Opening file %s", path);
+    FILE *f = fopen(path, "w");
+    if (f == NULL) {
+        ESP_LOGE(TAG, "Failed to open file for writing");
+        return ESP_FAIL;
+    }
+    fprintf(f, data);
+    fclose(f);
+    ESP_LOGI(TAG, "File written");
+
+    return ESP_OK;
+}
+
+static esp_err_t s_example_read_file(const char *path)
+{
+    ESP_LOGI(TAG, "Reading file %s", path);
+    FILE *f = fopen(path, "r");
+    if (f == NULL) {
+        ESP_LOGE(TAG, "Failed to open file for reading");
+        return ESP_FAIL;
+    }
+    char line[EXAMPLE_MAX_CHAR_SIZE];
+    fgets(line, sizeof(line), f);
+    fclose(f);
+
+    // strip newline
+    char *pos = strchr(line, '\n');
+    if (pos) {
+        *pos = '\0';
+    }
+    ESP_LOGI(TAG, "Read from file: '%s'", line);
+
+    return ESP_OK;
+}
+
 
 //定时器0 中断函数，1ms触发一次
 void IRAM_ATTR Timer0_Handler(){
@@ -335,43 +383,12 @@ void Get_MIC_To_SD_Task(void * parameter){
   int bytes_read = 0xffff;//单次实际采样数
   int16_t err;
 
-  const char* wavPath = "/voice.wav";//录音文件路径
+  const char* wavPath = "voice.wav";//录音文件路径
   //挂载MicroSD Card
-  SPIClass SD_SPI_Config;
-  SD_SPI_Config.begin(SD_SPI_SCLK, SD_SPI_MISO, SD_SPI_MOSI, SD_SPI_CS);
-  while(!SD.begin(SD_SPI_CS, SD_SPI_Config)){
-    Serial.println("Card Mount Failed");
-    delay(1000);
-  }
-  //检测SD卡型号
-  uint8_t cardType = SD.cardType();
-  while(cardType == CARD_NONE){
-    Serial.println("No SD card attached");
-    vTaskDelay(1000);
-    cardType = SD.cardType();
-  }
-  Serial.print("SD Card Type: ");
-  switch (cardType)
-  {
-  case CARD_MMC:
-    Serial.println("MMC");
-    break;
-  case CARD_SDHC:
-    Serial.println("SDHC");
-    break;
-  case CARD_SD:
-    Serial.println("SDSC");
-    break;
-  default:
-    Serial.println("UNKNOWN");
-    break;
-  }
-  //检测SD卡大小
-  uint64_t cardSize = SD.cardSize() / (1024 * 1024);
-  ESP_LOGI(TAG, "SD Card Size: %lluMB\r\n", cardSize);
+  rowl_sd = new sd_card(SD_MOUNT_POINT, sd_spi_bus_config, SD_SPI_CS); // 实例化TF卡读写对象
 
   //实例化一个wav文件写手 对象
-  WavFileWriter mic_WavFileWriter(wavPath, SAMPLE_RATE, sizeof(i2s_INMP_sample_t));
+  WavFileWriter mic_WavFileWriter(rowl_sd, wavPath, SAMPLE_RATE, sizeof(i2s_INMP_sample_t));
 
   // 实例化一个INMP441的采样器 对象
   I2SINMPSampler mic_I2SINMPSampler(MIC_INMP_I2SPORT, i2s_INMP_config, i2s_INMP_pin_config);
@@ -419,6 +436,10 @@ void Get_MIC_To_SD_Task(void * parameter){
   }while(WiFi.status() != WL_CONNECTED);
   ESP_LOGI(TAG, "Succeed in linking wifi: %s", wifi_ssid);
 
+  // 进入待机模式
+  queue_temp = 0;
+  xQueueSend(OLED_showing_queue, &queue_temp, 0);
+
   sis_api.start(); // 获取token
   bot_api.start();
   sis_api.queryHotList(); // 查询云端并更新本地热词表
@@ -428,9 +449,6 @@ void Get_MIC_To_SD_Task(void * parameter){
   // sis_api.hAddData("你好");
   // sis_api.createHotList();
 
-  // 进入待机模式
-  queue_temp = 0;
-  xQueueSend(OLED_showing_queue, &queue_temp, 0);
 
   while(1){
     if(digitalRead(Record_Key) == 0){
@@ -447,7 +465,6 @@ void Get_MIC_To_SD_Task(void * parameter){
       vTaskSuspend(OLED_Task_Handle); // 挂起用到IIC的任务，影响到spi写入SD卡了
       while(digitalRead(Record_Key) == 0){
         // 采样录音
-        // Serial.println("demo");
         bytes_read = mic_I2SINMPSampler.read(samples_read, i2s_INMP_config.dma_buf_len);
         for(int i = 0; i < bytes_read/sizeof(i2s_INMP_sample_t); i++){
           samples_read[i]*=11;
@@ -468,12 +485,10 @@ void Get_MIC_To_SD_Task(void * parameter){
       queue_temp = 2;
       xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY); // 告诉OLED显示识别中UI
       //对wav文件进行base64编码
-      File myfile = SD.open(wavPath,FILE_READ);
-      char *base64Data = FiletoBase64(myfile);
-      myfile.close();
+      char *base64_data = rowl_sd->enBase64(wavPath);
       // 将wav文件的base64编码POST到SIS，接收返回数据
 sis_api_again:
-      err = sis_api.sis(base64Data, &sis_payload);
+      err = sis_api.sis(base64_data, &sis_payload);
       ESP_LOGD(TAG, "err=%d", err);
       switch(err)
       {
@@ -492,9 +507,7 @@ bot_api_again:
               break;
             case 0: // 成功聊天
               queue_temp = 3;
-              Serial.println(1);
               xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY); // 告诉OLED显示语音识别结果UI
-              Serial.println(2);
               break;
             case 1:// 没网了
               queue_temp = 5;
@@ -505,7 +518,6 @@ bot_api_again:
               xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY);
               break;
           }
-          // Serial.println(chat_content);
           break;
         case 1: // 没网了
           queue_temp = 5;
@@ -528,8 +540,8 @@ bot_api_again:
           xQueueSend(OLED_showing_queue, &queue_temp, portMAX_DELAY);
           break;
       }
-      free(base64Data);
-      base64Data = NULL;
+      free(base64_data);
+      base64_data = NULL;
       while(digitalRead(Record_Key) == 1); //保持显示识别结果,再次点按回到待机状态
       vTaskDelay(500); // 消抖
       queue_temp = 0;
@@ -724,8 +736,15 @@ void setup(){
   // 关闭各核心看门狗
   disableCore0WDT();
   // disableCore1WDT(); //默认就没开启
+
+
+  // // 放音测试
+  // const char* wavPath = "/voice.wav";//录音文件路径
+
 }
 
 
+
 void loop(){
+
 }

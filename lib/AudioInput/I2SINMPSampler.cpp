@@ -7,8 +7,8 @@ static const char* TAG = "I2S_INMP";
 
 
 
-I2SINMPSampler::I2SINMPSampler(const i2s_port_t i2sPort, const i2s_config_t &i2s_config, const i2s_pin_config_t &i2s_pin_config) 
-    : I2SSampler(i2sPort, i2s_config), m_i2s_pin_config(i2s_pin_config){}
+I2SINMPSampler::I2SINMPSampler(const i2s_port_t i2sPort, const i2s_config_t &i2s_config, const i2s_pin_config_t &i2s_pin_config)
+    : I2SSampler(i2sPort, i2s_config, i2s_pin_config){}
 
 void I2SINMPSampler::configureI2S(){
   esp_err_t err;
