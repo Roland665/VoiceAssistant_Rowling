@@ -21,9 +21,9 @@ WavFileWriter::WavFileWriter(sd_card *_sdcard, const char *wavPath, int sample_r
  */
 void WavFileWriter::start(void)
 {
-  ESP_LOGI(TAG, "Start writing wav file", m_file_size);
-
-  if(!m_sdcard->start(m_wavPath, "w"))
+  ESP_LOGI(TAG, "Start writing wav file");
+  // 打开文件
+  if(m_sdcard->start(m_wavPath, "w"))
     ESP_LOGE(TAG, "Failed to open file for writing");
   //写入 wav文件头
   m_sdcard->write(&m_header, sizeof(wav_header_t), 1);
@@ -41,7 +41,6 @@ void WavFileWriter::write(const uint8_t *samples, size_t sample_size, int count)
 {
   // write the samples and keep track of the file size so far
   m_sdcard->write(samples, sample_size, count);
-  // fwrite(samples, sizeof(int16_t), count, m_fp);
   m_file_size += sample_size * count;
 }
 

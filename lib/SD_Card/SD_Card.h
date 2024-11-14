@@ -18,6 +18,7 @@ public:
   rowl_err_t start(const char* path, const char *type);
   rowl_err_t write(const void *buf, size_t data_size, size_t number);
   rowl_err_t read(void *buf, size_t data_size, size_t number);
+  rowl_err_t read(void *buf, size_t data_size, size_t number, size_t *count);
   rowl_err_t seek(long pos, int mode);
   char * enBase64(const char* path);
   rowl_err_t stop(void);

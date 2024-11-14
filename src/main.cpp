@@ -1,43 +1,45 @@
 /*************************/
 /*
-@version V1.0
+@version V2.0
 @author Roland
-@brief	实现了录音至wav并上传至华为SIS API实现语音识别
+@brief	较V1：成功接入百度ERNIE-Bot大模型
 */
 #include <Arduino.h>
-#include "config.h"
-#include "WavFileWriter.h"
-#include "sd_card.h"
-#include "I2SOutput.h"
-#include <esp_task_wdt.h>
-#include "I2SINMPSampler.h"
-#include <WiFi.h>
-#include "API_online.h"
 #include <driver/gpio.h>
 #include <U8g2lib.h>
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLE2902.h>
-#include "ERNIE-Bot.h"
-
-#include "driver/i2s.h"
-#include "driver/gpio.h"
-
+#include <esp_task_wdt.h>
+#include <WiFi.h>
 #include <string.h>
 #include <sys/unistd.h>
 #include <sys/stat.h>
 #include "esp_vfs_fat.h"
 #include "sdmmc_cmd.h"
+#include "driver/i2s.h"
+#include "driver/gpio.h"
+
+#include "ERNIE-Bot.h"
+#include "config.h"
+#include "WavFileWriter.h"
+#include "WavFileReader.h"
+#include "sd_card.h"
+#include "I2SOutput.h"
+#include "I2SINMPSampler.h"
+#include "API_online.h"
+
+
 
 
 static const char* TAG = "Roland";
 
 // static char *wifi_ssid = "苹果手机 15 Pro max ultra";
 // static char *wifi_password = "roland66";
-static char *wifi_ssid = "520";
-static char *wifi_password = "12345678";
-// static char *wifi_ssid = "Xiaomi_4c";
-// static char *wifi_password = "l18005973661";
+// static char *wifi_ssid = "苹果手机15 pro max ultra";
+// static char *wifi_password = "roland66";
+static char *wifi_ssid = "HUAWEI Nova 11 SE";
+static char *wifi_password = "roland66";
 bool recordFlag = false;//是否开始录音标志位，true-开始
 bool LEDT_flag = false;
 hw_timer_t*   Timer0 = NULL; // 预先定义一个指针来存放定时器的位置
@@ -128,11 +130,25 @@ void IRAM_ATTR Timer0_Handler(){
 
 //LED_Task 任务函数
 void LED_Task(void *parameter){
+  uint8_t count = 0;
+  uint8_t inver_flag = 1;
   while(1){
+    LEDB_OFF;
     LEDA_ON;
-    vTaskDelay(100);
+    vTaskDelay(4*count+50);
+    LEDB_ON;
     LEDA_OFF;
-    vTaskDelay(1000);
+    vTaskDelay(4*count+50);
+    if(inver_flag){
+      count++;
+      if(count == 50)
+        inver_flag = 0;
+    }
+    else{
+      count--;
+      if(count == 0)
+        inver_flag = 1;
+    }
   }
 }
 
@@ -274,7 +290,7 @@ void OLED_Task(void *parameter){
         if(temp_flag){
           temp_flag = false;
           u8g2.sendBuffer(); // 同步屏幕
-          vTaskDelay(2);
+          vTaskDelay(2/portTICK_PERIOD_MS);
         }
         y_err++;
       }while(25-y_err+y_add*12 >= 63);
@@ -656,7 +672,7 @@ void BLE_Handler_Task(void *parameter){
   BLECharacteristic * bTxCharacteristic; // 单服务的特征-发送通知
   BLECharacteristic * bRxCharacteristic; // 单服务的特征-接收
   // Create the BLE Device
-  BLEDevice::init("Rowling-v1"); //启动蓝牙并命设备名
+  BLEDevice::init("Rowling-v2"); //启动蓝牙并命设备名
   BLEDevice::setMTU(29+3); //增大MTU至32Byte（默认23），正好是华为手机设备名称的最长值
   // Create the BLE Server
   bServer = BLEDevice::createServer(); // 实例化BLE服务端（从机）
@@ -710,22 +726,26 @@ void BLE_Handler_Task(void *parameter){
 }
 
 void setup(){
-  Serial.begin(921600);
-  pinMode(LEDA,OUTPUT);
-  pinMode(LEDB,OUTPUT);
-  pinMode(Record_Key, INPUT);
-  gpio_set_pull_mode(Record_Key, GPIO_PULLUP_ONLY); // 设置上拉
+  Serial.begin(115200);
+  Serial.printf("CPU run in %d MHz\n", ESP.getCpuFreqMHz());
   // 打印PSRAM大小
   Serial.print("Free PSRAM after allocation: ");
   Serial.println(heap_caps_get_free_size(MALLOC_CAP_SPIRAM));
   // 创建消息队列
   OLED_showing_queue = xQueueCreate(OLED_SHOWING_LEN, OLED_SHOWING_SIZE);
   Wifi_data_queue = xQueueCreate(WIFI_DATA_LEN_MAX, WIFI_DATA_SIZE);
+
   // 创建各任务
+  pinMode(LEDA,OUTPUT);
+  pinMode(LEDB,OUTPUT);
   xTaskCreate(LED_Task, "LED_Task", 1024*2, NULL, 1, NULL);
-  // xTaskCreate(Key_Task, "Key_Task", 1024*2, NULL, 1, NULL);
+
   xTaskCreate(OLED_Task, "OLED_Task", 1024*4, NULL, 1, &OLED_Task_Handle);
+
+  pinMode(Record_Key, INPUT);
+  gpio_set_pull_mode(Record_Key, GPIO_PULLUP_ONLY); // 设置上拉
   xTaskCreate(Get_MIC_To_SD_Task, "Get_MIC_To_SD_Task", 1024*6, NULL, 1, NULL);
+
   xTaskCreate(BLE_Handler_Task, "BLE_Handler_Task", 1024*10, NULL, 1, NULL);
 
   // 配置定时器0中断
@@ -733,16 +753,38 @@ void setup(){
   // timerAttachInterrupt(Timer0, &Timer0_Handler, true); //注册中断，边沿触发
   // timerAlarmWrite(Timer0, 1000, true); // 编辑定时器更新中断细节
   // timerAlarmEnable(Timer0);  // 启动定时器
+
   // 关闭各核心看门狗
   disableCore0WDT();
   // disableCore1WDT(); //默认就没开启
 
 
   // // 放音测试
-  // const char* wavPath = "/voice.wav";//录音文件路径
+  // // const char *wavPath = "/daoxiang.wav";//录音文件路径
+  // // const char *wavPath = "/jiangnan-320.wav";//录音文件路径
+  // const char *wavPath = "/xuanni.wav";//录音文件路径
+  // size_t readed_len; // 每次读出的数据长度
+  // sd_card *play_sd = new sd_card(SD_MOUNT_POINT, sd_spi_bus_config, SD_SPI_CS);
+  // WavFileReader wav_reader(play_sd); // 实例化wave文件读者
+  // I2SOutput wav_player(PLAYER_I2SPORT, i2s_player_pin_config); // 实例化I2S的音频播放驱动
 
+  // wav_reader.start(wavPath); // 开始读取wave
+  // wav_reader.set_esp_i2s_config(&i2s_player_config);// 实时配置i2s
+  // wav_player.start(&i2s_player_config); // 开始播放wave
+
+  // uint8_t *voicebuf = wav_reader.get_Audiobuffer(i2s_player_config.dma_buf_len);
+  // do{
+  //   wav_reader.read(voicebuf, i2s_player_config.dma_buf_len,&readed_len);
+  //   // for(int i = 0; i < readed_len; i++)
+  //   //   voicebuf[i]/=64; // 降音量
+  //   Serial.println(readed_len);
+  //   wav_player.play(voicebuf, readed_len);
+  // }while(readed_len);
+  // wav_reader.stop();
+  // wav_player.stop();
+  // free(voicebuf);
+  // voicebuf = NULL;
 }
-
 
 
 void loop(){
