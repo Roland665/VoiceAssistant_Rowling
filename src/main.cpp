@@ -759,31 +759,37 @@ void setup(){
   // disableCore1WDT(); //默认就没开启
 
 
-  // // 放音测试
-  // // const char *wavPath = "/daoxiang.wav";//录音文件路径
-  // // const char *wavPath = "/jiangnan-320.wav";//录音文件路径
-  // const char *wavPath = "/xuanni.wav";//录音文件路径
-  // size_t readed_len; // 每次读出的数据长度
-  // sd_card *play_sd = new sd_card(SD_MOUNT_POINT, sd_spi_bus_config, SD_SPI_CS);
-  // WavFileReader wav_reader(play_sd); // 实例化wave文件读者
-  // I2SOutput wav_player(PLAYER_I2SPORT, i2s_player_pin_config); // 实例化I2S的音频播放驱动
+  // 放音测试
+  // const char *wavPath = "/daoxiang.wav";//录音文件路径
+  // const char *wavPath = "/jiangnan-320.wav";//录音文件路径
+  const char *wavPath = "/xuanni.wav";//录音文件路径
+  size_t readed_len; // 每次读出的数据长度
+  sd_card *play_sd = new sd_card(SD_MOUNT_POINT, sd_spi_bus_config, SD_SPI_CS);
+  WavFileReader wav_reader(play_sd); // 实例化wave文件读者
+  I2SOutput wav_player(PLAYER_I2SPORT, i2s_player_pin_config); // 实例化I2S的音频播放驱动
 
-  // wav_reader.start(wavPath); // 开始读取wave
-  // wav_reader.set_esp_i2s_config(&i2s_player_config);// 实时配置i2s
-  // wav_player.start(&i2s_player_config); // 开始播放wave
+  wav_reader.start(wavPath); // 开始读取wave
+  wav_reader.set_esp_i2s_config(&i2s_player_config);// 实时配置i2s
+  wav_player.start(&i2s_player_config); // 开始播放wave
+uint8_t new_buf[1024*256];
+  uint8_t *voicebuf = wav_reader.get_Audiobuffer(i2s_player_config.dma_buf_len);
+  uint32_t index = 0;
+  do{
+    ret = wav_reader.read(&new_buf[index], i2s_player_config.dma_buf_len,&readed_len); // 1024Byte
+    if (ret != 0)
+    {
 
-  // uint8_t *voicebuf = wav_reader.get_Audiobuffer(i2s_player_config.dma_buf_len);
-  // do{
-  //   wav_reader.read(voicebuf, i2s_player_config.dma_buf_len,&readed_len);
-  //   // for(int i = 0; i < readed_len; i++)
-  //   //   voicebuf[i]/=64; // 降音量
-  //   Serial.println(readed_len);
-  //   wav_player.play(voicebuf, readed_len);
-  // }while(readed_len);
-  // wav_reader.stop();
-  // wav_player.stop();
-  // free(voicebuf);
-  // voicebuf = NULL;
+    }
+
+    // for(int i = 0; i < readed_len; i++)
+    //   voicebuf[i]/=64; // 降音量
+    Serial.println(readed_len);
+    wav_player.play(voicebuf, readed_len);
+  }while(readed_len);
+  wav_reader.stop();
+  wav_player.stop();
+  free(voicebuf);
+  voicebuf = NULL;
 }
 
 
